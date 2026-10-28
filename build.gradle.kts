@@ -2,3 +2,13 @@
 plugins {
     alias(libs.plugins.android.application) apply false
 }
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.chaquo.python:gradle:17.2.0")
+    }
+}
