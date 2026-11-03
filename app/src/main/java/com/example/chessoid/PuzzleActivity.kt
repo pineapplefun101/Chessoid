@@ -8,6 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 
 class PuzzleActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,49 +32,124 @@ class PuzzleActivity : AppCompatActivity() {
             }
             // Grant Linux execution permissions
             engineFile.setExecutable(true)
+        } // <--- THIS BRACE CLOSES THE IF STATEMENT HERE!
 
-            val boardGrid = findViewById<GridLayout>(R.id.chessBoardGrid)
+        val boardGrid = findViewById<GridLayout>(R.id.chessBoardGrid)
 
-            boardGrid.post {
-                val squareSize = boardGrid.width / 8
-                var squareIndex = 0
+        // Start the Python environment
+        if (!Python.isStarted()) {
+            Python.start(AndroidPlatform(this))
+        }
 
-                // A 64-item array representing the standard chess starting position.
-                // 0 represents an empty square.
-                val initialBoard = arrayOf(
-                    R.drawable.b_rook, R.drawable.b_knight, R.drawable.b_bishop, R.drawable.b_queen, R.drawable.b_king, R.drawable.b_bishop, R.drawable.b_knight, R.drawable.b_rook,
-                    R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn,
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0,
-                    R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn,
-                    R.drawable.w_rook, R.drawable.w_knight, R.drawable.w_bishop, R.drawable.w_queen, R.drawable.w_king, R.drawable.w_bishop, R.drawable.w_knight, R.drawable.w_rook
-                )
+        // Fetch your chess_logic.py script
+        val py = Python.getInstance()
+        val chessLogic = py.getModule("chess_logic")
 
-                for (row in 0..7) {
-                    for (col in 0..7) {
-                        val square = ImageView(this)
-                        square.tag = squareIndex
+        boardGrid.post {
+            val squareSize = boardGrid.width / 8
+            var squareIndex = 0
 
-                        square.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        // Optional: Adjust padding if the pieces look too large or small inside their squares
-                        square.setPadding(8, 8, 8, 8)
+            var selectedIndex = -1
+            var selectedSquareName = ""
+            var currentLegalMoves = listOf<String>()
 
-                        // Inject the piece asset if the array says this square shouldn't be empty
-                        val pieceImageId = initialBoard[squareIndex]
-                        if (pieceImageId != 0) {
-                            square.setImageResource(pieceImageId)
-                        }
+            // A 64-item array representing the standard chess starting position.
+            // 0 represents an empty square.
+            val initialBoard = arrayOf(
+                R.drawable.b_rook, R.drawable.b_knight, R.drawable.b_bishop, R.drawable.b_queen, R.drawable.b_king, R.drawable.b_bishop, R.drawable.b_knight, R.drawable.b_rook,
+                R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+                R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn,
+                R.drawable.w_rook, R.drawable.w_knight, R.drawable.w_bishop, R.drawable.w_queen, R.drawable.w_king, R.drawable.w_bishop, R.drawable.w_knight, R.drawable.w_rook
+            )
 
-                        val params = GridLayout.LayoutParams()
-                        params.width = squareSize
-                        params.height = squareSize
-                        square.layoutParams = params
+            for (row in 0..7) {
+                for (col in 0..7) {
+                    val square = ImageView(this)
+                    square.tag = squareIndex
 
-                        boardGrid.addView(square)
-                        squareIndex++
+                    square.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    square.setPadding(8, 8, 8, 8)
+
+                    val pieceImageId = initialBoard[squareIndex]
+                    if (pieceImageId != 0) {
+                        square.setImageResource(pieceImageId)
+                        square.scaleType = ImageView.ScaleType.FIT_XY
                     }
+
+                    val params = GridLayout.LayoutParams()
+                    params.width = squareSize
+                    params.height = squareSize
+                    square.layoutParams = params
+
+                    // --- THE UPGRADED TOUCH LISTENER ---
+                    square.setOnClickListener {
+                        val clickedIndex = square.tag as Int
+                        val clickedCol = clickedIndex % 8
+                        val clickedRow = clickedIndex / 8
+                        val clickedSquareName = "${(97 + clickedCol).toChar()}${8 - clickedRow}"
+
+                        // CASE 1: EXECUTE A MOVE
+                        // If we already selected a piece, and the tapped square is a valid legal move
+                        if (selectedIndex != -1 && currentLegalMoves.contains(clickedSquareName)) {
+
+                            // 1. Tell Python to update the backend board (e.g., "e2e4")
+                            val moveUci = selectedSquareName + clickedSquareName
+                            chessLogic.callAttr("make_move", moveUci)
+
+                            // 2. Update the UI: Move the image to the new square, clear the old square
+                            val sourceSquare = boardGrid.getChildAt(selectedIndex) as ImageView
+                            val destSquare = boardGrid.getChildAt(clickedIndex) as ImageView
+                            destSquare.setImageDrawable(sourceSquare.drawable)
+                            sourceSquare.setImageDrawable(null)
+
+                            // 3. Reset the board highlights and memory
+                            for (i in 0..63) {
+                                boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            }
+                            selectedIndex = -1
+                            selectedSquareName = ""
+                            currentLegalMoves = emptyList()
+
+                        }
+                        // CASE 2: SELECT A PIECE
+                        else {
+                            // 1. Clear any previous highlights
+                            for (i in 0..63) {
+                                boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            }
+
+                            // 2. Ask Python for legal moves for the tapped piece
+                            val pyLegalMoves = chessLogic.callAttr("get_legal_moves", clickedSquareName).asList()
+                            currentLegalMoves = pyLegalMoves.map { it.toString() }
+
+                            // 3. Highlight destination squares in green
+                            for (destName in currentLegalMoves) {
+                                val destCol = destName[0] - 'a'
+                                val destRow = 8 - destName[1].digitToInt()
+                                val destIndex = (destRow * 8) + destCol
+                                boardGrid.getChildAt(destIndex).setBackgroundColor(android.graphics.Color.parseColor("#8000FF00"))
+                            }
+
+                            // 4. Save state if the piece actually has moves
+                            if (currentLegalMoves.isNotEmpty()) {
+                                selectedIndex = clickedIndex
+                                selectedSquareName = clickedSquareName
+                                // Optional: Highlight the tapped piece in yellow so you know it's selected
+                                square.setBackgroundColor(android.graphics.Color.parseColor("#80FFFF00"))
+                            } else {
+                                selectedIndex = -1
+                                selectedSquareName = ""
+                            }
+                        }
+                    }
+                    // -----------------------------------
+
+                    boardGrid.addView(square)
+                    squareIndex++
                 }
             }
         }

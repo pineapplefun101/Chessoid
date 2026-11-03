@@ -47,3 +47,13 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }
+
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        buildPython("/usr/bin/python3")
+        pip {
+            install("chess")
+        }
+    }
+}
