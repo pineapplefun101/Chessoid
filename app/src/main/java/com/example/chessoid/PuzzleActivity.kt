@@ -32,7 +32,17 @@ class PuzzleActivity : AppCompatActivity() {
             }
             // Grant Linux execution permissions
             engineFile.setExecutable(true)
-        } // <--- THIS BRACE CLOSES THE IF STATEMENT HERE!
+        }
+
+        // Extract the puzzle database to internal storage
+        val dbFile = File(filesDir, "puzzles.db")
+        if (!dbFile.exists()) {
+            assets.open("puzzles.db").use { input ->
+                dbFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
 
         val boardGrid = findViewById<GridLayout>(R.id.chessBoardGrid)
 
@@ -45,27 +55,29 @@ class PuzzleActivity : AppCompatActivity() {
         val py = Python.getInstance()
         val chessLogic = py.getModule("chess_logic")
 
+        // Pass the database path to Python and print the result
+        val dbPath = dbFile.absolutePath
+        val puzzleTestResult = chessLogic.callAttr("get_test_puzzle", dbPath).toString()
+        println("DATABASE TEST: $puzzleTestResult")
+
+
         boardGrid.post {
+
             val squareSize = boardGrid.width / 8
             var squareIndex = 0
 
+            // Memory for the two-tap system
             var selectedIndex = -1
             var selectedSquareName = ""
             var currentLegalMoves = listOf<String>()
 
-            // A 64-item array representing the standard chess starting position.
-            // 0 represents an empty square.
-            val initialBoard = arrayOf(
-                R.drawable.b_rook, R.drawable.b_knight, R.drawable.b_bishop, R.drawable.b_queen, R.drawable.b_king, R.drawable.b_bishop, R.drawable.b_knight, R.drawable.b_rook,
-                R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn, R.drawable.b_pawn,
-                0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0,
-                R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn, R.drawable.w_pawn,
-                R.drawable.w_rook, R.drawable.w_knight, R.drawable.w_bishop, R.drawable.w_queen, R.drawable.w_king, R.drawable.w_bishop, R.drawable.w_knight, R.drawable.w_rook
-            )
+            // --- FETCH FEN FROM DATABASE ---
+            val dbPath = File(filesDir, "puzzles.db").absolutePath
+            val fenString = chessLogic.callAttr("load_random_puzzle", dbPath).toString()
 
+            // Translate the FEN into the 64-item array
+            val initialBoard = fenToBoardArray(fenString)
+            // -------------------------------
             for (row in 0..7) {
                 for (col in 0..7) {
                     val square = ImageView(this)
@@ -154,4 +166,46 @@ class PuzzleActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun charToDrawable(c: Char): Int {
+        return when (c) {
+            'r' -> R.drawable.b_rook
+            'n' -> R.drawable.b_knight
+            'b' -> R.drawable.b_bishop
+            'q' -> R.drawable.b_queen
+            'k' -> R.drawable.b_king
+            'p' -> R.drawable.b_pawn
+            'R' -> R.drawable.w_rook
+            'N' -> R.drawable.w_knight
+            'B' -> R.drawable.w_bishop
+            'Q' -> R.drawable.w_queen
+            'K' -> R.drawable.w_king
+            'P' -> R.drawable.w_pawn
+            else -> 0
+        }
+    }
+
+    private fun fenToBoardArray(fen: String): IntArray {
+        val board = IntArray(64) { 0 }
+        // We only care about the piece placement part (before the first space)
+        val piecePlacement = fen.split(" ")[0]
+        val rows = piecePlacement.split("/")
+
+        var index = 0
+        for (row in rows) {
+            for (char in row) {
+                if (char.isDigit()) {
+                    // Skip empty squares
+                    index += char.digitToInt()
+                } else {
+                    // Assign the drawable ID
+                    board[index] = charToDrawable(char)
+                    index++
+                }
+            }
+        }
+        return board
+    }
+
+
 }
