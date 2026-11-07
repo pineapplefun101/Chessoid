@@ -3,6 +3,8 @@ package com.example.chessoid
 import android.os.Bundle
 import android.widget.GridLayout
 import android.widget.ImageView
+import android.widget.TextView
+import android.widget.Button
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -63,107 +65,199 @@ class PuzzleActivity : AppCompatActivity() {
 
         boardGrid.post {
 
-            val squareSize = boardGrid.width / 8
-            var squareIndex = 0
+            // --- FETCH FEN FROM DATABASE ---
+            val dbPath = File(filesDir, "puzzles.db").absolutePath
+            val streakText = findViewById<TextView>(R.id.streakText)
+            val tvPuzzleStatus = findViewById<TextView>(R.id.tvPuzzleStatus)
+            var currentStreak = 0
 
-            // Memory for the two-tap system
             var selectedIndex = -1
             var selectedSquareName = ""
             var currentLegalMoves = listOf<String>()
 
-            // --- FETCH FEN FROM DATABASE ---
-            val dbPath = File(filesDir, "puzzles.db").absolutePath
-            val fenString = chessLogic.callAttr("load_random_puzzle", dbPath).toString()
+            // --- REUSABLE PUZZLE LOADER ---
+            fun loadNewPuzzle() {
+                // 1. Reset selection memory
+                selectedIndex = -1
+                selectedSquareName = ""
+                currentLegalMoves = emptyList()
 
-            // Translate the FEN into the 64-item array
-            val initialBoard = fenToBoardArray(fenString)
-            // -------------------------------
-            for (row in 0..7) {
-                for (col in 0..7) {
-                    val square = ImageView(this)
-                    square.tag = squareIndex
+                // 2. Fetch new FEN from Python/SQLite
+                val fenString = chessLogic.callAttr("load_random_puzzle", dbPath).toString()
+                val boardArray = fenToBoardArray(fenString)
 
-                    square.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    square.setPadding(8, 8, 8, 8)
+                //Update "White to Move" / "Black to Move"
+                val fenParts = fenString.split(" ")
+                if (fenParts.size > 1) {
+                    if (fenParts[1] == "w") {
+                        tvPuzzleStatus.text = "White to Move"
+                    } else {
+                        tvPuzzleStatus.text = "Black to Move"
+                    }
+                }
 
-                    val pieceImageId = initialBoard[squareIndex]
+
+                // 3. Update the 64 existing ImageViews instantly
+                for (i in 0..63) {
+                    val square = boardGrid.getChildAt(i) as ImageView
+                    val pieceImageId = boardArray[i]
+
                     if (pieceImageId != 0) {
                         square.setImageResource(pieceImageId)
                         square.scaleType = ImageView.ScaleType.FIT_XY
+                    } else {
+                        square.setImageDrawable(null) // Empty square
                     }
-
-                    val params = GridLayout.LayoutParams()
-                    params.width = squareSize
-                    params.height = squareSize
-                    square.layoutParams = params
-
-                    // --- THE UPGRADED TOUCH LISTENER ---
-                    square.setOnClickListener {
-                        val clickedIndex = square.tag as Int
-                        val clickedCol = clickedIndex % 8
-                        val clickedRow = clickedIndex / 8
-                        val clickedSquareName = "${(97 + clickedCol).toChar()}${8 - clickedRow}"
-
-                        // CASE 1: EXECUTE A MOVE
-                        // If we already selected a piece, and the tapped square is a valid legal move
-                        if (selectedIndex != -1 && currentLegalMoves.contains(clickedSquareName)) {
-
-                            // 1. Tell Python to update the backend board (e.g., "e2e4")
-                            val moveUci = selectedSquareName + clickedSquareName
-                            chessLogic.callAttr("make_move", moveUci)
-
-                            // 2. Update the UI: Move the image to the new square, clear the old square
-                            val sourceSquare = boardGrid.getChildAt(selectedIndex) as ImageView
-                            val destSquare = boardGrid.getChildAt(clickedIndex) as ImageView
-                            destSquare.setImageDrawable(sourceSquare.drawable)
-                            sourceSquare.setImageDrawable(null)
-
-                            // 3. Reset the board highlights and memory
-                            for (i in 0..63) {
-                                boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            }
-                            selectedIndex = -1
-                            selectedSquareName = ""
-                            currentLegalMoves = emptyList()
-
-                        }
-                        // CASE 2: SELECT A PIECE
-                        else {
-                            // 1. Clear any previous highlights
-                            for (i in 0..63) {
-                                boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            }
-
-                            // 2. Ask Python for legal moves for the tapped piece
-                            val pyLegalMoves = chessLogic.callAttr("get_legal_moves", clickedSquareName).asList()
-                            currentLegalMoves = pyLegalMoves.map { it.toString() }
-
-                            // 3. Highlight destination squares in green
-                            for (destName in currentLegalMoves) {
-                                val destCol = destName[0] - 'a'
-                                val destRow = 8 - destName[1].digitToInt()
-                                val destIndex = (destRow * 8) + destCol
-                                boardGrid.getChildAt(destIndex).setBackgroundColor(android.graphics.Color.parseColor("#8000FF00"))
-                            }
-
-                            // 4. Save state if the piece actually has moves
-                            if (currentLegalMoves.isNotEmpty()) {
-                                selectedIndex = clickedIndex
-                                selectedSquareName = clickedSquareName
-                                // Optional: Highlight the tapped piece in yellow so you know it's selected
-                                square.setBackgroundColor(android.graphics.Color.parseColor("#80FFFF00"))
-                            } else {
-                                selectedIndex = -1
-                                selectedSquareName = ""
-                            }
-                        }
-                    }
-                    // -----------------------------------
-
-                    boardGrid.addView(square)
-                    squareIndex++
+                    // Clear any lingering highlights from the previous puzzle
+                    square.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 }
             }
+
+            val btnHint = findViewById<Button>(R.id.btnShowSolution)
+            val btnSkip = findViewById<Button>(R.id.btnNextPuzzle)
+
+            // Skip button (|>) - Resets streak and immediately loads next puzzle
+            btnSkip.setOnClickListener {
+                currentStreak = 0
+                streakText.text = "Streak: $currentStreak"
+                loadNewPuzzle()
+            }
+
+            // Move-by-move hint button (>)
+            btnHint.setOnClickListener {
+                val result = chessLogic.callAttr("pop_hint_move").toString()
+
+                if (result.startsWith("MOVE:") || result.startsWith("LAST:")) {
+                    val moveUci = result.split(":")[1]
+
+                    // Move the piece visually on the board
+                    movePieceOnUi(moveUci, boardGrid)
+
+                    // Using a hint breaks the streak
+                    currentStreak = 0
+                    streakText.text = "Streak: $currentStreak"
+
+                    // Clear any manual piece selections or highlights
+                    for (i in 0..63) {
+                        boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    }
+                    selectedIndex = -1
+                    selectedSquareName = ""
+                    currentLegalMoves = emptyList()
+
+                    // If that was the final move of the puzzle, wait 1 second and load a new one
+                    if (result.startsWith("LAST:")) {
+                        boardGrid.postDelayed({ loadNewPuzzle() }, 1000)
+                    }
+                }
+            }
+
+
+            // --- INITIALIZE THE GRID UI ---
+            boardGrid.post {
+                val squareSize = boardGrid.width / 8
+                var squareIndex = 0
+
+                // We only build the 64 empty squares ONCE
+                for (row in 0..7) {
+                    for (col in 0..7) {
+                        val square = ImageView(this)
+                        square.tag = squareIndex
+                        square.setPadding(8, 8, 8, 8)
+
+                        val params = GridLayout.LayoutParams()
+                        params.width = squareSize
+                        params.height = squareSize
+                        square.layoutParams = params
+
+                        // --- THE TOUCH LISTENER ---
+                        square.setOnClickListener {
+                            val clickedIndex = square.tag as Int
+                            val clickedCol = clickedIndex % 8
+                            val clickedRow = clickedIndex / 8
+                            val clickedSquareName = "${(97 + clickedCol).toChar()}${8 - clickedRow}"
+
+                            // CASE 1: EXECUTE A MOVE
+                            if (selectedIndex != -1 && currentLegalMoves.contains(clickedSquareName)) {
+                                val moveUci = selectedSquareName + clickedSquareName
+                                val result = chessLogic.callAttr("check_puzzle_move", moveUci).toString()
+
+                                if (result == "WRONG") {
+                                    // Flash red and kill the streak
+                                    square.setBackgroundColor(android.graphics.Color.parseColor("#80FF0000"))
+                                    currentStreak = 0
+                                    streakText.text = "Streak: $currentStreak"
+                                } else {
+                                    // Move is correct! Move piece visually.
+                                    movePieceOnUi(moveUci, boardGrid)
+
+                                    if (result.startsWith("CORRECT:")) {
+                                        // The bot has a reply
+                                        val botReplyUci = result.split(":")[1]
+                                        boardGrid.postDelayed({
+                                            movePieceOnUi(botReplyUci, boardGrid)
+                                        }, 400)
+                                    } else if (result == "SOLVED") {
+                                        // Puzzle complete! Bump streak and auto-advance.
+                                        currentStreak++
+                                        streakText.text = "Streak: $currentStreak"
+
+                                        // Wait 1 second so the player can see their winning move land, then reload
+                                        boardGrid.postDelayed({
+                                            loadNewPuzzle()
+                                        }, 1000)
+                                    }
+                                }
+
+                                // Clean up memory/highlights after ANY move attempt (unless they guessed wrong, leave the red flash)
+                                if (result != "WRONG") {
+                                    for (i in 0..63) {
+                                        boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                    }
+                                    selectedIndex = -1
+                                    selectedSquareName = ""
+                                    currentLegalMoves = emptyList()
+                                }
+                            }
+                            // CASE 2: SELECT A PIECE
+                            else {
+                                // Clear previous highlights (removes the red flash if they tap elsewhere)
+                                for (i in 0..63) {
+                                    boardGrid.getChildAt(i).setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                }
+
+                                val pyLegalMoves = chessLogic.callAttr("get_legal_moves", clickedSquareName).asList()
+                                currentLegalMoves = pyLegalMoves.map { it.toString() }
+
+                                for (destName in currentLegalMoves) {
+                                    val destCol = destName[0] - 'a'
+                                    val destRow = 8 - destName[1].digitToInt()
+                                    val destIndex = (destRow * 8) + destCol
+                                    boardGrid.getChildAt(destIndex).setBackgroundColor(android.graphics.Color.parseColor("#8000FF00"))
+                                }
+
+                                if (currentLegalMoves.isNotEmpty()) {
+                                    selectedIndex = clickedIndex
+                                    selectedSquareName = clickedSquareName
+                                    square.setBackgroundColor(android.graphics.Color.parseColor("#80FFFF00"))
+                                } else {
+                                    selectedIndex = -1
+                                    selectedSquareName = ""
+                                }
+                            }
+                        }
+                        // --------------------------
+
+                        boardGrid.addView(square)
+                        squareIndex++
+                    }
+                }
+
+                // Now that the 64 squares are built and listening, load the very first puzzle!
+                loadNewPuzzle()
+            }
+
+
         }
     }
 
@@ -205,6 +299,23 @@ class PuzzleActivity : AppCompatActivity() {
             }
         }
         return board
+    }
+
+    private fun movePieceOnUi(moveUci: String, boardGrid: GridLayout) {
+        // e.g., converts "e2e4" to grid indices
+        val sourceCol = moveUci[0] - 'a'
+        val sourceRow = 8 - moveUci[1].digitToInt()
+        val sourceIndex = (sourceRow * 8) + sourceCol
+
+        val destCol = moveUci[2] - 'a'
+        val destRow = 8 - moveUci[3].digitToInt()
+        val destIndex = (destRow * 8) + destCol
+
+        val sourceSquare = boardGrid.getChildAt(sourceIndex) as ImageView
+        val destSquare = boardGrid.getChildAt(destIndex) as ImageView
+
+        destSquare.setImageDrawable(sourceSquare.drawable)
+        sourceSquare.setImageDrawable(null)
     }
 
 

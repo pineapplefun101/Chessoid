@@ -73,3 +73,43 @@ def load_random_puzzle(db_path):
 
         return fen
     return ""
+
+def check_puzzle_move(move_uci):
+    global current_solution
+
+    if not current_solution:
+        return "SOLVED"
+
+    expected_move = current_solution[0]
+
+    if move_uci == expected_move:
+        # 1. Player made the right move. Update internal board and remove from solution list.
+        board.push(chess.Move.from_uci(move_uci))
+        current_solution.pop(0)
+
+        # 2. If the puzzle has a bot reply, apply it instantly and return it to Kotlin
+        if current_solution:
+            bot_reply_uci = current_solution[0]
+            board.push(chess.Move.from_uci(bot_reply_uci))
+            current_solution.pop(0)
+            return f"CORRECT:{bot_reply_uci}"
+        else:
+            return "SOLVED"
+    else:
+        return "WRONG"
+
+
+def pop_hint_move():
+    global current_solution
+    if not current_solution:
+        return "DONE"
+
+    # Grab the next move in the solution sequence
+    move_uci = current_solution.pop(0)
+    board.push(chess.Move.from_uci(move_uci))
+
+    # Check if that was the last move required
+    if not current_solution:
+        return f"LAST:{move_uci}"
+    else:
+        return f"MOVE:{move_uci}"
