@@ -15,12 +15,19 @@ class MainActivity : AppCompatActivity() {
 
         // 1. Find the Puzzles button by its ID
         val btnPuzzles = findViewById<ImageButton>(R.id.btnPuzzles)
+        val btnBotMatch = findViewById<ImageButton>(R.id.btnBotMatch)
 
         // 2. Set what happens when the button is clicked
         btnPuzzles.setOnClickListener {
             // 3. Create an Intent to transition to the PuzzleActivity
             val intent = Intent(this, PuzzleActivity::class.java)
             startActivity(intent)
+        }
+
+        btnBotMatch.setOnClickListener {
+            val intent = Intent(this, BotSettingsActivity::class.java)
+            startActivity(intent)
+
         }
     }
 }

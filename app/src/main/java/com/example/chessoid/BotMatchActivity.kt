@@ -35,15 +35,6 @@ class BotMatchActivity : AppCompatActivity() {
             engineFile.setExecutable(true)
         }
 
-        // Extract the puzzle database to internal storage
-        val dbFile = File(filesDir, "puzzles.db")
-        if (!dbFile.exists()) {
-            assets.open("puzzles.db").use { input ->
-                dbFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
 
         val boardGrid = findViewById<GridLayout>(R.id.chessBoardGrid)
 
@@ -54,13 +45,21 @@ class BotMatchActivity : AppCompatActivity() {
 
         // Fetch your chess_logic.py script
         val py = Python.getInstance()
-        val chessLogic = py.getModule("chess_logic")
+        val botLogic = py.getModule("bot_logic")
 
-        // Pass the database path to Python and print the result
-        val dbPath = dbFile.absolutePath
-        val puzzleTestResult = chessLogic.callAttr("get_test_puzzle", dbPath).toString()
-        println("DATABASE TEST: $puzzleTestResult")
+        // 1. Unpack the settings
+        val playerColor = intent.getStringExtra("PLAYER_COLOR") ?: "white"
+        val botElo = intent.getIntExtra("BOT_ELO", 1200)
 
+        // 2. Reset the board and boot the engine with the requested Elo
+        botLogic.callAttr("reset_board")
+        botLogic.callAttr("init_engine", engineFile.absolutePath, botElo)
+
+        // 3. If the player chose Black, the Bot (White) needs to make the very first move!
+        if (playerColor == "black") {
+            val firstMove = botLogic.callAttr("get_bot_reply").toString()
+            // (We will handle flipping the UI pieces in the next step, for now just let it calculate)
+        }
 
         boardGrid.post {
             val squareSize = boardGrid.width / 8
@@ -115,7 +114,7 @@ class BotMatchActivity : AppCompatActivity() {
 
                             // 1. Tell Python to update the backend board (e.g., "e2e4")
                             val moveUci = selectedSquareName + clickedSquareName
-                            chessLogic.callAttr("make_move", moveUci)
+                            botLogic.callAttr("make_move", moveUci)
 
                             // 2. Update the UI: Move the image to the new square, clear the old square
                             val sourceSquare = boardGrid.getChildAt(selectedIndex) as ImageView
@@ -131,6 +130,30 @@ class BotMatchActivity : AppCompatActivity() {
                             selectedSquareName = ""
                             currentLegalMoves = emptyList()
 
+
+                            // --- ASK STOCKFISH FOR A REPLY ---
+                            boardGrid.postDelayed({
+                                val botMoveUci = botLogic.callAttr("get_bot_reply").toString()
+
+                                if (botMoveUci != "GAME_OVER") {
+                                    // Convert the bot's UCI string (e.g., "e7e5") to grid indices
+                                    val botSourceCol = botMoveUci[0] - 'a'
+                                    val botSourceRow = 8 - botMoveUci[1].digitToInt()
+                                    val botSourceIndex = (botSourceRow * 8) + botSourceCol
+
+                                    val botDestCol = botMoveUci[2] - 'a'
+                                    val botDestRow = 8 - botMoveUci[3].digitToInt()
+                                    val botDestIndex = (botDestRow * 8) + botDestCol
+
+                                    // Visually move the bot's piece
+                                    val botSourceSquare = boardGrid.getChildAt(botSourceIndex) as ImageView
+                                    val botDestSquare = boardGrid.getChildAt(botDestIndex) as ImageView
+
+                                    botDestSquare.setImageDrawable(botSourceSquare.drawable)
+                                    botSourceSquare.setImageDrawable(null)
+                                }
+                            }, 100) // Slight 100ms delay so it feels natural
+
                         }
                         // CASE 2: SELECT A PIECE
                         else {
@@ -140,7 +163,7 @@ class BotMatchActivity : AppCompatActivity() {
                             }
 
                             // 2. Ask Python for legal moves for the tapped piece
-                            val pyLegalMoves = chessLogic.callAttr("get_legal_moves", clickedSquareName).asList()
+                            val pyLegalMoves = botLogic.callAttr("get_legal_moves", clickedSquareName).asList()
                             currentLegalMoves = pyLegalMoves.map { it.toString() }
 
                             // 3. Highlight destination squares in green
