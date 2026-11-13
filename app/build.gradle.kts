@@ -23,6 +23,13 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir("src/main/jniLibs")
+        }
+    }
+
+
     buildTypes {
         release {
             optimization {

@@ -23,18 +23,6 @@ class BotMatchActivity : AppCompatActivity() {
             insets
         }
 
-        val engineFile = File(filesDir, "stockfish")
-        if (!engineFile.exists()) {
-            // Copy from assets to internal storage
-            assets.open("stockfish").use { input ->
-                engineFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            // Grant Linux execution permissions
-            engineFile.setExecutable(true)
-        }
-
 
         val boardGrid = findViewById<GridLayout>(R.id.chessBoardGrid)
 
@@ -52,8 +40,9 @@ class BotMatchActivity : AppCompatActivity() {
         val botElo = intent.getIntExtra("BOT_ELO", 1200)
 
         // 2. Reset the board and boot the engine with the requested Elo
+        val enginePath = "${applicationInfo.nativeLibraryDir}/libstockfish.so"
         botLogic.callAttr("reset_board")
-        botLogic.callAttr("init_engine", engineFile.absolutePath, botElo)
+        botLogic.callAttr("init_engine", enginePath, botElo)
 
         // 3. If the player chose Black, the Bot (White) needs to make the very first move!
         if (playerColor == "black") {

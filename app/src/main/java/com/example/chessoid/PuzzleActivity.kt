@@ -24,17 +24,7 @@ class PuzzleActivity : AppCompatActivity() {
             insets
         }
 
-        val engineFile = File(filesDir, "stockfish")
-        if (!engineFile.exists()) {
-            // Copy from assets to internal storage
-            assets.open("stockfish").use { input ->
-                engineFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            // Grant Linux execution permissions
-            engineFile.setExecutable(true)
-        }
+
 
         // Extract the puzzle database to internal storage
         val dbFile = File(filesDir, "puzzles.db")
